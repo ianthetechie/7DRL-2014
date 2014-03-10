@@ -14,11 +14,21 @@
 (defmacro with-curses-window (&body forms)
   `(progn
      (cl-ncurses:initscr)
+     (cl-ncurses:noecho)  ;; Disable keyboard echo
      ,@forms
      (cl-ncurses:endwin)))
 
+(defun get-keyboard-char ()
+  "Reads a single keypress and returns a character literal"
+  (code-char (cl-ncurses:getch)))
 
-(with-curses-window
-  (cl-ncurses:printw "Hello, cl-ncurses")
-  (cl-ncurses:refresh)
-  (cl-ncurses:getch))
+(defun main ()
+  (with-curses-window
+    (cl-ncurses:printw "Hello, cl-ncurses")
+    (cl-ncurses:refresh)
+    (let ((lastkey nil))
+      (loop while (not (eql #\Esc lastkey)) do
+           ;; Main game input loop
+           (setf lastkey (get-keyboard-char))))))
+
+(main)
