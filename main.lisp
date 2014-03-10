@@ -1,8 +1,8 @@
-;; 7DRL - Started 2014-09-03 22:00
-;; Written by Ian Wagner
+;;;; 7DRL - Started 2014-09-03 22:00 EDT
+;;;; Written by Ian Wagner
 
 
-;; ncurses library dependencies
+;;; ncurses library dependencies
 (require :asdf)
 
 (asdf:operate 'asdf:load-op :uffi)
@@ -11,10 +11,11 @@
 
 (asdf:oos 'asdf:load-op 'cl-ncurses)
 
+;;; Abstract away common curses window setup code
 (defmacro with-curses-window (&body forms)
   `(progn
      (cl-ncurses:initscr)
-     (cl-ncurses:noecho)  ;; Disable keyboard echo
+     (cl-ncurses:noecho)  ; Disable keyboard echo
      ,@forms
      (cl-ncurses:endwin)))
 
