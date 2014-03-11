@@ -7,9 +7,11 @@
 
 (asdf:operate 'asdf:load-op :uffi)
 
-(require 'uffi)
+(require :uffi)
 
 (asdf:oos 'asdf:load-op 'cl-ncurses)
+
+(load "mapgen.lisp")
 
 (defpackage :7DRL-2014
   (:use :common-lisp))
@@ -27,13 +29,32 @@
   "Reads a single keypress and returns a character literal"
   (code-char (cl-ncurses:getch)))
 
+(defun draw-map (grid)
+  (mapgen:iterate-map
+            grid
+            (lambda (row col val)
+              (cl-ncurses:mvaddch
+               row
+               col
+               (char-code (cond
+                            ((eql val :wall) #\#)
+                            ((eql val :floor) #\Space)
+                            (t #\?)))))
+            (lambda (row))))
+
+(defun update-display (grid)
+  (cl-ncurses:clear)
+  (draw-map grid)
+  (cl-ncurses:refresh))
+
 (defun main ()
   (with-curses-window
-    (cl-ncurses:printw "Hello, cl-ncurses")
-    (cl-ncurses:refresh)
-    (let ((lastkey nil))
+    (let ((lastkey nil)
+          (grid (mapgen:generate-map 24 80)))
+      (update-display grid)
       (loop while (not (eql #\Esc lastkey)) do
            ;; Main game input loop
-           (setf lastkey (get-keyboard-char))))))
+           (setf lastkey (get-keyboard-char))
+           (update-display grid)))))
 
 (main)
