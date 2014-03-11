@@ -50,7 +50,7 @@
 (defun main ()
   (with-curses-window
     (let ((lastkey nil)
-          (grid (mapgen:generate-map 24 80)))
+          (grid (mapgen:generate-map 60 100)))
       (update-display grid)
       (loop while (not (eql #\Esc lastkey)) do
            ;; Main game input loop
