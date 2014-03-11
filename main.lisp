@@ -11,6 +11,10 @@
 
 (asdf:oos 'asdf:load-op 'cl-ncurses)
 
+(defpackage :7DRL-2014
+  (:use :common-lisp))
+(in-package :7DRL-2014)
+
 ;;; Abstract away common curses window setup code
 (defmacro with-curses-window (&body forms)
   `(progn
