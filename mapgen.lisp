@@ -5,7 +5,7 @@
   (:use :common-lisp))
 (in-package :mapgen)
 
-(defun generate-grid (width height)
+(defun generate-grid (height width)
   (make-array (list height width) :initial-element 'wall))
 
 (defun floor-tile-percentage (grid)
@@ -43,3 +43,19 @@
            ;; Walk to the coordinte and dig a block
            (walk grid coord)))
     grid))
+
+(defmacro iterate-map (grid row-form col-form)
+  `(loop for row from 0 to (- (array-dimension ,grid 0) 1) do
+        (loop for col from 0 to (- (array-dimension ,grid 1) 1) do
+             (let ((tile-value (aref ,grid row col)))
+               ,row-form))
+        ,col-form))
+
+(defun debug-print-map (grid)
+  (iterate-map
+   grid
+   (format t "~c" (cond
+                     ((eql tile-value 'wall) #\#)
+                     ((eql tile-value 'floor) #\Space)
+                     (t #\?)))
+   (format t "~%")))
