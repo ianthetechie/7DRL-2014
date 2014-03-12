@@ -17,6 +17,13 @@
   (:use :common-lisp))
 (in-package :7DRL-2014)
 
+(defstruct player
+  row
+  col
+  hp
+  max-hp
+  level)
+
 ;;; Abstract away common curses window setup code
 (defmacro with-curses-window (&body forms)
   `(progn
@@ -48,6 +55,7 @@
   (cl-ncurses:refresh))
 
 (defun main ()
+  (format t "~%Generating a level...~%")
   (with-curses-window
     (let ((lastkey nil)
           (grid (mapgen:generate-map 60 100)))
