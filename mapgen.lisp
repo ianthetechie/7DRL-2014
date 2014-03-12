@@ -5,7 +5,10 @@
   (:use :common-lisp
         :sb-ext)
   (:export :generate-map
-           :iterate-map))
+           :get-tile-value
+           :make-coord
+           :iterate-row-major
+           :iterate-col-major))
 (in-package :mapgen)
 
 (defstruct coord
@@ -85,15 +88,22 @@
            (dig grid coord state)))
     grid))
 
-(defmacro iterate-map (grid row-fcn col-fcn)
+(defmacro iterate-row-major (grid tile-fcn row-fcn)
   `(loop for row from 0 to (- (array-dimension ,grid 0) 1) do
         (loop for col from 0 to (- (array-dimension ,grid 1) 1) do
              (let ((tile-value (aref ,grid row col)))
-               (,row-fcn row col tile-value)))
-        (,col-fcn row)))
+               (,tile-fcn row col tile-value)))
+        (,row-fcn row)))
+
+(defmacro iterate-col-major (grid tile-fcn col-fcn)
+  `(loop for col from 0 to (- (array-dimension ,grid 1) 1) do
+        (loop for row from 0 to (- (array-dimension ,grid 0) 1) do
+             (let ((tile-value (aref ,grid row col)))
+               (,tile-fcn row col tile-value)))
+        (,col-fcn col)))
 
 (defun debug-print-map (grid)
-  (iterate-map
+  (iterate-row-major
    grid
    (lambda (row col val)
      (format t "~c" (cond
