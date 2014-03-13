@@ -6,6 +6,8 @@
         :sb-ext)
   (:export :generate-map
            :get-tile-value
+           :grid-height
+           :grid-width
            :make-coord
            :iterate-row-major
            :iterate-col-major))
@@ -21,6 +23,12 @@
 (defun floor-tile-percentage (grid)
   (let ((vec (array-storage-vector grid)))
     (/ (count :floor vec) (length vec))))
+
+(defun grid-height (grid)
+  (array-dimension grid 0))
+
+(defun grid-width (grid)
+  (array-dimension grid 1))
 
 (defmacro get-tile-value (grid coord)
   `(aref ,grid (coord-row ,coord) (coord-col ,coord)))
