@@ -13,3 +13,7 @@ Dependencies
 (require 'asdf-install)
 (asdf-install:install 'cl-ncurses)
 ```
+
+Screenshot
+----------
+![ScreenShot](/Screenshot%20(Day%206).png)
