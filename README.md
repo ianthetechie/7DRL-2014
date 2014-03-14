@@ -7,6 +7,7 @@ decided to give Lisp a go anyways. Should be fun!
 
 Dependencies
 ------------
+All deveopment was done with SBCL, and the sb-ext library is used for fetching 2D array dimensions at runtime.
 
 ```lisp
 (require 'asdf)
