@@ -26,7 +26,8 @@
   level)
 
 (defstruct game-state
-  recognized)
+  recognized
+  finished)
 
 (defstruct adversary
   type
@@ -34,10 +35,11 @@
   level)
 
 (defvar *player-color-pair* 1)
+(defvar *objective-color-pair* 2)
 
 (defvar *player* (make-player :hp 10 :max-hp 10 :level 1))
 (defvar *enemy*)
-(defvar *game-state* (make-game-state :recognized nil))
+(defvar *game-state* (make-game-state :recognized nil :finished nil))
 (defvar *grid*)
 
 
@@ -48,14 +50,23 @@
      (cl-ncurses:noecho)      ; Disable keyboard echo
      (cl-ncurses:curs-set 1)  ; Normal cursor visibility
 
-     ;; Set up color
+     ;; Set up colors
      (cl-ncurses:start-color)
+
      (cl-ncurses:init-pair
       *player-color-pair*
       cl-ncurses:color_yellow
+      cl-ncurses:color_white)
+
+     (cl-ncurses:init-pair
+      *objective-color-pair*
+      cl-ncurses:color_green
       cl-ncurses:color_black)
      
+     ;; Code body
      ,@forms
+     
+     ;; Cleanup
      (cl-ncurses:endwin)))
 
 (defun get-keyboard-char ()
@@ -104,11 +115,15 @@
   (mapgen:iterate-row-major
    *grid*
    (lambda (row col val)
+     (if (eql val :objective)
+         (cl-ncurses:attron (cl-ncurses:color-pair *objective-color-pair*)))
      (cl-ncurses:mvaddch row col
       (char-code (cond
                    ((eql val :wall) #\#)
                    ((eql val :floor) #\Space)
-                   (t #\?)))))
+                   ((eql val :objective) #\!)
+                   (t #\?))))
+     (cl-ncurses:attroff (cl-ncurses:color-pair *objective-color-pair*)))
    (lambda (row))))
 
 (defun draw-player ()
@@ -124,10 +139,12 @@
   (draw-map)
   (draw-player)
   (cl-ncurses:move (player-row *player*) (player-col *player*))
-  (if (game-state-recognized *game-state*)
-      (draw-infobox "You've been spotted by a recognizer!"))
+  (cond
+    ((game-state-recognized *game-state*)
+     (draw-infobox "You've been spotted by a recognizer!"))
+    ((game-state-finished *game-state*)
+     (draw-infobox "Congratulations on retrieving the data. END OF LINE.")))
   (cl-ncurses:refresh))
-
 
 ;;; Player manipulation functions
 
@@ -147,57 +164,68 @@
 (defun do-player-action (key)
   (let ((row-delta 0)
         (col-delta 0))
-    (cond
-      ((eql key #\h) (setf col-delta -1))
-      ((eql key #\l) (setf col-delta 1))
-      ((eql key #\k) (setf row-delta -1))
-      ((eql key #\j) (setf row-delta 1))
-      ((eql key #\u)
-       (progn
-         (setf row-delta -1)
-         (setf col-delta 1)))
-      ((eql key #\n)
-       (progn
-         (setf row-delta 1)
-         (setf col-delta 1)))
-      ((eql key #\y)
-       (progn
-         (setf row-delta -1)
-         (setf col-delta -1)))
-      ((eql key #\b)
-       (progn
-         (setf row-delta 1)
-         (setf col-delta -1))))
-    (let ((row (+ (player-row *player*) row-delta))
-          (col (+ (player-col *player*) col-delta)))
-      (if (eql (mapgen:get-tile-value
-                *grid*
-                (mapgen:make-coord :row row :col col))
-               :floor)
-          (progn
-            (setf (player-row *player*) row)
-            (setf (player-col *player*) col))))))
-
+    (if (cond
+          ((eql key #\h) (setf col-delta -1))
+          ((eql key #\l) (setf col-delta 1))
+          ((eql key #\k) (setf row-delta -1))
+          ((eql key #\j) (setf row-delta 1))
+          ((eql key #\u)
+           (progn
+             (setf row-delta -1)
+             (setf col-delta 1)))
+          ((eql key #\n)
+           (progn
+             (setf row-delta 1)
+             (setf col-delta 1)))
+          ((eql key #\y)
+           (progn
+             (setf row-delta -1)
+             (setf col-delta -1)))
+          ((eql key #\b)
+           (progn
+             (setf row-delta 1)
+             (setf col-delta -1))))
+        (let* ((row (+ (player-row *player*) row-delta))
+               (col (+ (player-col *player*) col-delta))
+               (tile (mapgen:get-tile-value
+                      *grid*
+                      (mapgen:make-coord :row row :col col))))
+          (cond
+            ((eql tile :floor)
+             (progn
+               (setf (player-row *player*) row)
+               (setf (player-col *player*) col)))
+            ((eql tile :objective)
+             (progn
+               (setf (player-row *player*) row)
+               (setf (player-col *player*) col)
+               (setf (game-state-finished *game-state*) t))))))))
+            
 (defun do-fight-action (key)
   (cond
-    ((eql key #\r) (setf (game-state-recognized *game-state*) nil))))
+    ((eql key #\Space) (setf (game-state-recognized *game-state*) nil))))
 
 (defun main ()
-  (format t "~%Generating a level...~%")
+  (format t "~%Fragmenting the memory canyons...~%")
   (setf *grid* (mapgen:generate-map 75 271))
   (set-player-start)
   (with-curses-window
     (let ((last-key nil)
+          (should-quit nil)
           (state (make-random-state t)))
       (update-display)
-      (loop while (not (eql #\Esc last-key)) do
+      (loop while (not (or
+                        (eql #\Esc last-key)
+                        should-quit)) do
            ;; Main game input loop
+           (setf should-quit (game-state-finished *game-state*))
            (setf last-key (get-keyboard-char))
            (if (game-state-recognized *game-state*)
-               (do-fight-action last-key)
-               (progn
-                 (do-player-action last-key)
-                 (if (= (random 100 state) 0)
+               (do-fight-action last-key)  ; Special input handler for menu-based combat
+               (progn                      ; Normal movement
+                 (if (and                  ; If the player moves, there is a chance to be recognized
+                      (do-player-action last-key)
+                      (= (random 100 state) 0))
                      (setf (game-state-recognized *game-state*) t))))
            (update-display)))))
 

@@ -80,21 +80,8 @@
             (dig-other-shape grid coord state))
         (set-tile-value grid coord :floor))))
 
-(defun generate-map (height width)
-  (let ((grid (generate-grid height width))
-        (coord (make-coord :row (floor (/ height 2)) :col (floor (/ width 2))))
-        (state (make-random-state t)))
-    ;; Hollow out the center of the grid
-    (set-tile-value grid coord :floor)
-    ;; "Walk" around the map and clear out blocks
-    (loop while (< (floor-tile-percentage grid) 1/3) do
-         ;; Pick a coordinate component (row or col) and a delta (-1 or 1)
-         (let ((new-coord (ortho-step grid coord state)))
-           (loop while (not (is-near-n-walls grid new-coord 14 2)) do
-                (setf new-coord (ortho-step grid new-coord state)))
-           (setf coord new-coord)
-           (dig grid coord state)))
-    grid))
+
+;;; Grid iteration functions
 
 (defmacro iterate-row-major (grid tile-fcn row-fcn)
   `(loop for row from 0 to (- (array-dimension ,grid 0) 1) do
@@ -109,6 +96,35 @@
              (let ((tile-value (aref ,grid row col)))
                (,tile-fcn row col tile-value)))
         (,col-fcn col)))
+
+
+;;; The master generator function
+(defun generate-map (height width)
+  (let ((grid (generate-grid height width))
+        (coord (make-coord :row (floor (/ height 2)) :col (floor (/ width 2))))
+        (state (make-random-state t)))
+    ;; Hollow out the center of the grid
+    (set-tile-value grid coord :floor)
+    ;; "Walk" around the map and clear out blocks
+    (loop while (< (floor-tile-percentage grid) 1/3) do
+         ;; Pick a coordinate component (row or col) and a delta (-1 or 1)
+         (let ((new-coord (ortho-step grid coord state)))
+           (loop while (not (is-near-n-walls grid new-coord 15 2)) do
+                (setf new-coord (ortho-step grid new-coord state)))
+           (setf coord new-coord)
+           (dig grid coord state)))
+    ;; Place the special item
+    (let ((last-row) (last-col))
+      (iterate-col-major
+       grid
+       (lambda (row col val)
+         (if (eql val :floor)
+             (progn
+               (setf last-row row)
+               (setf last-col col))))
+       (lambda (col)))
+      (set-tile-value grid (make-coord :row last-row :col last-col) :objective))
+    grid))
 
 (defun debug-print-map (grid)
   (iterate-row-major
