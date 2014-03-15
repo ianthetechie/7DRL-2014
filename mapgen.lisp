@@ -9,6 +9,8 @@
            :grid-height
            :grid-width
            :make-coord
+           :coord-row
+           :coord-col
            :iterate-row-major
            :iterate-col-major))
 (in-package :mapgen)
@@ -99,10 +101,9 @@
 
 
 ;;; The master generator function
-(defun generate-map (height width)
+(defun generate-map (height width state)
   (let ((grid (generate-grid height width))
-        (coord (make-coord :row (floor (/ height 2)) :col (floor (/ width 2))))
-        (state (make-random-state t)))
+        (coord (make-coord :row (floor (/ height 2)) :col (floor (/ width 2)))))
     ;; Hollow out the center of the grid
     (set-tile-value grid coord :floor)
     ;; "Walk" around the map and clear out blocks

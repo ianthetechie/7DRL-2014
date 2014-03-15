@@ -23,24 +23,31 @@
   col
   hp
   max-hp
-  level)
+  attack
+  def)
 
 (defstruct game-state
   recognized
   finished)
 
-(defstruct adversary
+(defstruct baddie
+  row
+  col
   type
   hp
-  level)
+  attack
+  def)
 
+(defvar *default-color-pair* 0)
 (defvar *player-color-pair* 1)
 (defvar *objective-color-pair* 2)
+(defvar *baddie-color-pair* 3)
 
-(defvar *player* (make-player :hp 10 :max-hp 10 :level 1))
+(defvar *player* (make-player :hp 10 :max-hp 10 :attack 5 :def 5))
 (defvar *enemy*)
 (defvar *game-state* (make-game-state :recognized nil :finished nil))
 (defvar *grid*)
+(defvar *baddies* (make-array 20 :fill-pointer 0 :adjustable t))
 
 
 ;;; Abstract away common curses window setup code
@@ -54,6 +61,11 @@
      (cl-ncurses:start-color)
 
      (cl-ncurses:init-pair
+      *default-color-pair*
+      cl-ncurses:color_white
+      cl-ncurses:color_black)
+     
+     (cl-ncurses:init-pair
       *player-color-pair*
       cl-ncurses:color_yellow
       cl-ncurses:color_white)
@@ -62,12 +74,23 @@
       *objective-color-pair*
       cl-ncurses:color_green
       cl-ncurses:color_black)
+
+     (cl-ncurses:init-pair
+      *baddie-color-pair*
+      cl-ncurses:color_red
+      cl-ncurses:color_black)
      
      ;; Code body
      ,@forms
      
      ;; Cleanup
      (cl-ncurses:endwin)))
+
+(defun mvaddch-with-color-pair (y x ch color-pair)
+  "Wraps a call to mvaddch with enable and disable color pair calls"
+  (cl-ncurses:attron (cl-ncurses:color-pair color-pair))
+  (cl-ncurses:mvaddch y x ch)
+  (cl-ncurses:attroff (cl-ncurses:color-pair *baddie-color-pair*)))
 
 (defun get-keyboard-char ()
   "Reads a single keypress and returns a character literal"
@@ -115,28 +138,47 @@
   (mapgen:iterate-row-major
    *grid*
    (lambda (row col val)
-     (if (eql val :objective)
-         (cl-ncurses:attron (cl-ncurses:color-pair *objective-color-pair*)))
-     (cl-ncurses:mvaddch row col
-      (char-code (cond
-                   ((eql val :wall) #\#)
-                   ((eql val :floor) #\Space)
-                   ((eql val :objective) #\!)
-                   (t #\?))))
-     (cl-ncurses:attroff (cl-ncurses:color-pair *objective-color-pair*)))
+     (let* ((tile-info (cond
+                         ((eql val :wall)
+                          (list #\# *default-color-pair*))
+                         ((eql val :floor)
+                          (list #\Space *default-color-pair*))
+                         ((eql val :objective)
+                          (list #\! *objective-color-pair*))
+                         (t
+                          (list #\? *default-color-pair*))))
+            (ch (char-code (first tile-info)))
+            (color-pair (second tile-info)))
+       (mvaddch-with-color-pair
+        row
+        col
+        ch
+        color-pair)))
    (lambda (row))))
 
+(defun draw-baddies ()
+  (loop for baddie across *baddies* do
+       (mvaddch-with-color-pair
+        (baddie-row baddie)
+        (baddie-col baddie)
+        (char-code
+         (cond
+           ((eql (baddie-type baddie) :grid-bug)
+            #\g)
+           (t #\?)))
+        *baddie-color-pair*)))
+
 (defun draw-player ()
-  (cl-ncurses:attron (cl-ncurses:color-pair *player-color-pair*))
-  (cl-ncurses:mvaddch
+  (mvaddch-with-color-pair
    (player-row *player*)
    (player-col *player*)
-   (char-code #\@))
-  (cl-ncurses:attroff (cl-ncurses:color-pair *player-color-pair*)))
+   (char-code #\@)
+   *player-color-pair*))
 
 (defun update-display ()
   (cl-ncurses:clear)
   (draw-map)
+  (draw-baddies)
   (draw-player)
   (cl-ncurses:move (player-row *player*) (player-col *player*))
   (cond
@@ -145,8 +187,6 @@
     ((game-state-finished *game-state*)
      (draw-infobox "Congratulations on retrieving the data. END OF LINE.")))
   (cl-ncurses:refresh))
-
-;;; Player manipulation functions
 
 (defun set-player-start ()
   "Moves the player to the leftmost, tile of the highest row"
@@ -160,6 +200,45 @@
            (setf (player-row *player*) row)
            (setf (player-col *player*) col))))
    (lambda (col))))
+
+
+;;; Spawn some grid bugs and crap!
+(defun spawn-baddies (state)
+  (mapgen:iterate-row-major
+   *grid*
+   (lambda (row col val)
+     (if (and
+          (eql val :floor)
+          (= (random 200 state) 0))
+         (vector-push-extend
+          (make-baddie
+           :row row
+           :col col
+           :type :grid-bug
+           :hp 5
+           :attack 5
+           :def 5)
+          *baddies*)))
+   (lambda (col))))
+
+(defun move-baddies (state)
+  (loop for baddie across *baddies* do
+       ;; TODO: check distance from player, and try to move closer if possible
+       
+       ;; Otherwise, there is a chance to move in a random direction
+       (if (= (random 3 state) 0)
+           (let* ((row (baddie-row baddie))
+                  (col (baddie-col baddie))
+                  (row-delta (- 1 (random 3 state)))
+                  (col-delta (- 1 (random 3 state)))
+                  (coord (mapgen:make-coord
+                          :row (+ row row-delta)
+                          :col (+ col col-delta))))
+             (if (eql :floor (mapgen:get-tile-value *grid* coord))
+                 (progn
+                   (setf (baddie-row baddie) (mapgen:coord-row coord))
+                   (setf (baddie-col baddie) (mapgen:coord-col coord))))))))
+             
 
 (defun do-player-action (key)
   (let ((row-delta 0)
@@ -207,26 +286,28 @@
 
 (defun main ()
   (format t "~%Fragmenting the memory canyons...~%")
-  (setf *grid* (mapgen:generate-map 75 271))
-  (set-player-start)
-  (with-curses-window
-    (let ((last-key nil)
-          (should-quit nil)
-          (state (make-random-state t)))
-      (update-display)
-      (loop while (not (or
-                        (eql #\Esc last-key)
-                        should-quit)) do
-           ;; Main game input loop
-           (setf should-quit (game-state-finished *game-state*))
-           (setf last-key (get-keyboard-char))
-           (if (game-state-recognized *game-state*)
-               (do-fight-action last-key)  ; Special input handler for menu-based combat
-               (progn                      ; Normal movement
-                 (if (and                  ; If the player moves, there is a chance to be recognized
-                      (do-player-action last-key)
-                      (= (random 100 state) 0))
-                     (setf (game-state-recognized *game-state*) t))))
-           (update-display)))))
+  (let ((state (make-random-state t)))
+    (setf *grid* (mapgen:generate-map 75 271 state))
+    (set-player-start)
+    (spawn-baddies state)
+    (with-curses-window
+        (let ((last-key nil)
+              (should-quit nil))
+          (update-display)
+          (loop while (not (or
+                            (eql #\Esc last-key)
+                            should-quit)) do
+             ;; Main game input loop
+               (setf should-quit (game-state-finished *game-state*))
+               (setf last-key (get-keyboard-char))
+               (if (game-state-recognized *game-state*)
+                   (do-fight-action last-key)  ; Special input handler for menu-based combat
+                                               ; Normal movement
+                   (if (do-player-action last-key)
+                       (progn
+                         (move-baddies state)  ; If the player moves, there is a chance to be recognized
+                         (if (= (random 100 state) 0)
+                             (setf (game-state-recognized *game-state*) t)))))
+               (update-display))))))
 
 (main)
