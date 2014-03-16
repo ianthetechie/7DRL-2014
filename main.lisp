@@ -221,10 +221,35 @@
           *baddies*)))
    (lambda (col))))
 
+(defun distance (x1 y1 x2 y2)
+  (sqrt (+ (expt (- x2 x1) 2) (expt (- y2 y1) 2))))
+
+(defun compare (a b)
+  (cond
+    ((< a b) 1)
+    ((> a b) -1)
+    (t 0)))
+
 (defun move-baddies (state)
   (loop for baddie across *baddies* do
-       ;; TODO: check distance from player, and try to move closer if possible
-       
+       ;; Check distance from player, and try to move closer if possible
+       (let ((col-baddie (baddie-col baddie))
+             (row-baddie (baddie-row baddie))
+             (col-player (player-col *player*))
+             (row-player (player-row *player*))
+             (trigger-distance 4))
+         (if (<= (distance col-baddie row-baddie col-player row-player) trigger-distance)
+             (let* ((row-delta (compare row-baddie row-player))
+                    (col-delta (compare col-baddie col-player))
+                    (coord (mapgen:make-coord
+                            :row (+ row-baddie row-delta)
+                            :col (+ col-baddie col-delta))))
+               (if (and
+                    (eql :floor (mapgen:get-tile-value *grid* coord))
+                    (> (random 4) 0))  ; 25% chance to fail move
+                   (progn
+                     (setf (baddie-row baddie) (mapgen:coord-row coord))
+                     (setf (baddie-col baddie) (mapgen:coord-col coord)))))))
        ;; Otherwise, there is a chance to move in a random direction
        (if (= (random 3 state) 0)
            (let* ((row (baddie-row baddie))
