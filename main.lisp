@@ -39,11 +39,13 @@
   def)
 
 (defvar *default-color-pair* 0)
-(defvar *player-color-pair* 1)
-(defvar *objective-color-pair* 2)
-(defvar *baddie-color-pair* 3)
+(defvar *player-color-pair-healthy* 1)
+(defvar *player-color-pair-low* 2)
+(defvar *player-color-pair-critical* 3)
+(defvar *objective-color-pair* 4)
+(defvar *baddie-color-pair* 5)
 
-(defvar *player* (make-player :hp 10 :max-hp 10 :attack 5 :def 5))
+(defvar *player* (make-player :hp 25 :max-hp 25))
 (defvar *enemy*)
 (defvar *game-state* (make-game-state :dead nil :finished nil))
 (defvar *grid*)
@@ -66,9 +68,19 @@
       cl-ncurses:color_black)
      
      (cl-ncurses:init-pair
-      *player-color-pair*
+      *player-color-pair-healthy*
       cl-ncurses:color_yellow
       cl-ncurses:color_green)
+
+     (cl-ncurses:init-pair
+      *player-color-pair-low*
+      cl-ncurses:color_white
+      cl-ncurses:color_yellow)
+
+     (cl-ncurses:init-pair
+      *player-color-pair-critical*
+      cl-ncurses:color_yellow
+      cl-ncurses:color_red)
 
      (cl-ncurses:init-pair
       *objective-color-pair*
@@ -105,12 +117,14 @@
     (and
      (= (player-row *player*) row)
      (= (player-col *player*) col))
-    (loop for baddie across *baddies* do
-         (if (and
-              (= (baddie-row baddie) row)
-              (= (baddie-col baddie) col))
-             (return t)
-             nil)))))
+    (tile-is-occupied row col))))
+
+(defun tile-is-occupied (row col)
+  (or
+   (and
+    (= (player-row *player*) row)
+    (= (player-col *player*) col))
+   (get-baddie-at-position row col)))
 
 ;;; ncurses drawing functions
 
@@ -184,11 +198,18 @@
         *baddie-color-pair*)))
 
 (defun draw-player ()
-  (mvaddch-with-color-pair
-   (player-row *player*)
-   (player-col *player*)
-   (char-code #\@)
-   *player-color-pair*))
+  (let ((color-pair (cond
+                      ((>= (/ (player-hp *player*) (player-max-hp *player*)) 1/2)
+                       *player-color-pair-healthy*)
+                      ((< (/ (player-hp *player*) (player-max-hp *player*)) 1/2)
+                       *player-color-pair-low*)
+                      ((< (/ (player-hp *player*) (player-max-hp *player*)) 1/4)
+                       *player-color-pair-critical*))))
+    (mvaddch-with-color-pair
+     (player-row *player*)
+     (player-col *player*)
+     (char-code #\@)
+     color-pair)))
 
 (defun update-display ()
   (cl-ncurses:clear)
@@ -198,13 +219,15 @@
   (cl-ncurses:move (player-row *player*) (player-col *player*))
   (cond
     ((game-state-dead *game-state*)
-     (draw-infobox "You have been captured, and will be deresolutioned."))
+     (draw-infobox "You have been  deresolutioned. END OF LINE."))
     ((game-state-finished *game-state*)
      (draw-infobox "Congratulations on retrieving the data. END OF LINE.")))
   (cl-ncurses:refresh))
 
-(defun set-player-start ()
-  "Moves the player to the leftmost, tile of the highest row"
+(defun setup-player (state)
+  (setf (player-attack *player*) (+ 5 (- (random 5 state) 3)))
+  (setf (player-def *player*) (+ 8 (- (random 5 state) 3)))
+  ; move the player to the leftmost, tile of the highest row
   (mapgen:iterate-col-major
    *grid*
    (lambda (row col val)
@@ -216,6 +239,12 @@
            (setf (player-col *player*) col))))
    (lambda (col))))
 
+(defun get-baddie-at-position (row col)
+  (loop for baddie across *baddies* do
+       (if (and
+            (= (baddie-row baddie) row)
+            (= (baddie-col baddie) col))
+           (return baddie))))
 
 ;;; Spawn some grid bugs and crap!
 (defun spawn-baddies (state)
@@ -230,9 +259,9 @@
            :row row
            :col col
            :type :grid-bug
-           :hp 5
+           :hp 10
            :attack 5
-           :def 5)
+           :def 13)
           *baddies*)))
    (lambda (col))))
 
@@ -282,9 +311,29 @@
                        (progn
                          (setf (baddie-row baddie) new-row)
                          (setf (baddie-col baddie) new-col)))))))))
-             
+          
+(defun roll-dice (n sides state)
+  (apply '+ (loop for i from 1 to n collect
+                 (+ 1 (random sides state)))))
+   
+(defun fight-with-baddie (baddie player-init state)
+  (let ((pd (player-def *player*))
+        (ba (baddie-attack baddie)))
+    (if player-init  ; player gets the first strike if they initiated it
+        (let ((pa (player-attack *player*))
+              (bd (baddie-def baddie)))
+          (if (> (+ (roll-dice 1 20 state) pa) bd)
+              (let ((damage (roll-dice 3 6 state)))
+                (decf (baddie-hp baddie) damage)))))
+    (if (> (baddie-hp baddie) 0)  ; baddie gets a shot if he's alive
+        (if (> (+ (roll-dice 1 20 state) ba) pd)
+            (let ((damage (roll-dice 2 3 state)))
+                (decf (player-hp *player*) damage)))
+          (setf *baddies* (remove baddie *baddies*)))  ; remove baddie if he's dead
+    (if (<= (player-hp *player*) 0)
+        (setf (game-state-dead *game-state*) t))))
 
-(defun do-player-action (key)
+(defun do-player-action (key state)
   (let ((row-delta 0)
         (col-delta 0))
     (if (cond
@@ -318,6 +367,11 @@
              (progn
                (setf (player-row *player*) row)
                (setf (player-col *player*) col)))
+            ((tile-is-occupied row col)
+             (fight-with-baddie
+              (get-baddie-at-position row col)
+              t
+              state))
             ((eql tile :objective)
              (progn
                (setf (player-row *player*) row)
@@ -328,7 +382,7 @@
   (format t "~%Fragmenting the memory canyons...~%")
   (let ((state (make-random-state t)))
     (setf *grid* (mapgen:generate-map 75 271 state))
-    (set-player-start)
+    (setup-player state)
     (spawn-baddies state)
     (with-curses-window
         (let ((last-key nil)
@@ -340,7 +394,7 @@
                ;; Main game input loop
                (setf should-quit (game-state-dead *game-state*))
                (setf last-key (get-keyboard-char))
-               (if (do-player-action last-key)
+               (if (do-player-action last-key state)
                    (progn
                      (move-baddies state)  ; If the player moves, there is a chance to be recognized
                      (if (= (random 100 state) 0)
