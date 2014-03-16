@@ -17,4 +17,4 @@ All deveopment was done with SBCL, and the sb-ext library is used for fetching 2
 
 Screenshot
 ----------
-![ScreenShot](/Screenshot%20(Day%206).png)
+![ScreenShot](/Screenshot%20(Day%207).png)
