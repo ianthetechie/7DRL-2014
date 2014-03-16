@@ -27,7 +27,7 @@
   def)
 
 (defstruct game-state
-  recognized
+  dead
   finished)
 
 (defstruct baddie
@@ -45,7 +45,7 @@
 
 (defvar *player* (make-player :hp 10 :max-hp 10 :attack 5 :def 5))
 (defvar *enemy*)
-(defvar *game-state* (make-game-state :recognized nil :finished nil))
+(defvar *game-state* (make-game-state :dead nil :finished nil))
 (defvar *grid*)
 (defvar *baddies* (make-array 20 :fill-pointer 0 :adjustable t))
 
@@ -68,7 +68,7 @@
      (cl-ncurses:init-pair
       *player-color-pair*
       cl-ncurses:color_yellow
-      cl-ncurses:color_white)
+      cl-ncurses:color_green)
 
      (cl-ncurses:init-pair
       *objective-color-pair*
@@ -96,6 +96,21 @@
   "Reads a single keypress and returns a character literal"
   (code-char (cl-ncurses:getch)))
 
+(defun tile-is-enterable (row col)
+  (not
+   (or
+    (eql :wall (mapgen:get-tile-value
+                *grid*
+                (mapgen:make-coord :row row :col col)))
+    (and
+     (= (player-row *player*) row)
+     (= (player-col *player*) col))
+    (loop for baddie across *baddies* do
+         (if (and
+              (= (baddie-row baddie) row)
+              (= (baddie-col baddie) col))
+             (return t)
+             nil)))))
 
 ;;; ncurses drawing functions
 
@@ -182,8 +197,8 @@
   (draw-player)
   (cl-ncurses:move (player-row *player*) (player-col *player*))
   (cond
-    ((game-state-recognized *game-state*)
-     (draw-infobox "You've been spotted by a recognizer!"))
+    ((game-state-dead *game-state*)
+     (draw-infobox "You have been captured, and will be deresolutioned."))
     ((game-state-finished *game-state*)
      (draw-infobox "Congratulations on retrieving the data. END OF LINE.")))
   (cl-ncurses:refresh))
@@ -221,6 +236,9 @@
           *baddies*)))
    (lambda (col))))
 
+(defun spawn-recognizer (state)
+  nil)
+
 (defun distance (x1 y1 x2 y2)
   (sqrt (+ (expt (- x2 x1) 2) (expt (- y2 y1) 2))))
 
@@ -237,32 +255,33 @@
              (row-baddie (baddie-row baddie))
              (col-player (player-col *player*))
              (row-player (player-row *player*))
-             (trigger-distance 4))
+             (trigger-distance 10))
          (if (<= (distance col-baddie row-baddie col-player row-player) trigger-distance)
              (let* ((row-delta (compare row-baddie row-player))
                     (col-delta (compare col-baddie col-player))
-                    (coord (mapgen:make-coord
-                            :row (+ row-baddie row-delta)
-                            :col (+ col-baddie col-delta))))
+                    (new-row (+ row-baddie row-delta))
+                    (new-col (+ col-baddie col-delta)))
+               ;; Attempt to move one direction at a time
                (if (and
-                    (eql :floor (mapgen:get-tile-value *grid* coord))
-                    (> (random 4) 0))  ; 25% chance to fail move
+                    (tile-is-enterable new-row col-baddie)
+                    (> (random 5) 0))  ; chance to fail move
                    (progn
-                     (setf (baddie-row baddie) (mapgen:coord-row coord))
-                     (setf (baddie-col baddie) (mapgen:coord-col coord)))))))
-       ;; Otherwise, there is a chance to move in a random direction
-       (if (= (random 3 state) 0)
-           (let* ((row (baddie-row baddie))
-                  (col (baddie-col baddie))
-                  (row-delta (- 1 (random 3 state)))
-                  (col-delta (- 1 (random 3 state)))
-                  (coord (mapgen:make-coord
-                          :row (+ row row-delta)
-                          :col (+ col col-delta))))
-             (if (eql :floor (mapgen:get-tile-value *grid* coord))
-                 (progn
-                   (setf (baddie-row baddie) (mapgen:coord-row coord))
-                   (setf (baddie-col baddie) (mapgen:coord-col coord))))))))
+                     (setf (baddie-row baddie) new-row)))
+               (if (and
+                    (tile-is-enterable (baddie-row baddie) new-col)
+                    (> (random 5) 0))  ; chance to fail move
+                   (progn
+                     (setf (baddie-col baddie) new-col))))
+             ;; Otherwise, there is a chance to move in a random direction
+             (if (= (random 2 state) 0)
+                 (let* ((row-delta (- 1 (random 3 state)))
+                        (col-delta (- 1 (random 3 state)))
+                        (new-row (+ row-baddie row-delta))
+                        (new-col (+ col-baddie col-delta)))
+                   (if (tile-is-enterable new-row new-col)
+                       (progn
+                         (setf (baddie-row baddie) new-row)
+                         (setf (baddie-col baddie) new-col)))))))))
              
 
 (defun do-player-action (key)
@@ -295,7 +314,7 @@
                       *grid*
                       (mapgen:make-coord :row row :col col))))
           (cond
-            ((eql tile :floor)
+            ((tile-is-enterable row col)
              (progn
                (setf (player-row *player*) row)
                (setf (player-col *player*) col)))
@@ -305,10 +324,6 @@
                (setf (player-col *player*) col)
                (setf (game-state-finished *game-state*) t))))))))
             
-(defun do-fight-action (key)
-  (cond
-    ((eql key #\Space) (setf (game-state-recognized *game-state*) nil))))
-
 (defun main ()
   (format t "~%Fragmenting the memory canyons...~%")
   (let ((state (make-random-state t)))
@@ -322,17 +337,14 @@
           (loop while (not (or
                             (eql #\Esc last-key)
                             should-quit)) do
-             ;; Main game input loop
-               (setf should-quit (game-state-finished *game-state*))
+               ;; Main game input loop
+               (setf should-quit (game-state-dead *game-state*))
                (setf last-key (get-keyboard-char))
-               (if (game-state-recognized *game-state*)
-                   (do-fight-action last-key)  ; Special input handler for menu-based combat
-                                               ; Normal movement
-                   (if (do-player-action last-key)
-                       (progn
-                         (move-baddies state)  ; If the player moves, there is a chance to be recognized
-                         (if (= (random 100 state) 0)
-                             (setf (game-state-recognized *game-state*) t)))))
+               (if (do-player-action last-key)
+                   (progn
+                     (move-baddies state)  ; If the player moves, there is a chance to be recognized
+                     (if (= (random 100 state) 0)
+                         (spawn-recognizer state))))
                (update-display))))))
 
 (main)
