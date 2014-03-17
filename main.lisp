@@ -24,7 +24,8 @@
   hp
   max-hp
   attack
-  def)
+  def
+  attacked-baddie)
 
 (defstruct game-state
   dead
@@ -161,7 +162,8 @@
              (row (floor (- (/ map-height 2) (/ height 2))))
              (col (floor (- (/ map-width 2) (/ width 2)))))
     (draw-rect row col height width)
-    (draw-string (+ row 2) (+ col 2) title)))
+    (draw-string (+ row 2) (+ col 2) title)
+    (draw-string (+ row 3) (+ col 2) "Press ESC to quit. END OF LINE.")))
 
 (defun draw-map ()
   (mapgen:iterate-row-major
@@ -194,6 +196,8 @@
          (cond
            ((eql (baddie-type baddie) :grid-bug)
             #\g)
+           ((eql (baddie-type baddie) :data-pusher)
+            #\d)
            (t #\?)))
         *baddie-color-pair*)))
 
@@ -201,10 +205,10 @@
   (let ((color-pair (cond
                       ((>= (/ (player-hp *player*) (player-max-hp *player*)) 1/2)
                        *player-color-pair-healthy*)
-                      ((< (/ (player-hp *player*) (player-max-hp *player*)) 1/2)
-                       *player-color-pair-low*)
                       ((< (/ (player-hp *player*) (player-max-hp *player*)) 1/4)
-                       *player-color-pair-critical*))))
+                       *player-color-pair-critical*)
+                      ((< (/ (player-hp *player*) (player-max-hp *player*)) 1/2)
+                       *player-color-pair-low*))))
     (mvaddch-with-color-pair
      (player-row *player*)
      (player-col *player*)
@@ -219,15 +223,15 @@
   (cl-ncurses:move (player-row *player*) (player-col *player*))
   (cond
     ((game-state-dead *game-state*)
-     (draw-infobox "You have been  deresolutioned. END OF LINE."))
+     (draw-infobox "You have been deresolutioned."))
     ((game-state-finished *game-state*)
-     (draw-infobox "Congratulations on retrieving the data. END OF LINE.")))
+     (draw-infobox "Congratulations; you found the data!.")))
   (cl-ncurses:refresh))
 
 (defun setup-player (state)
   (setf (player-attack *player*) (+ 5 (- (random 5 state) 3)))
   (setf (player-def *player*) (+ 8 (- (random 5 state) 3)))
-  ; move the player to the leftmost, tile of the highest row
+  ;; move the player to the leftmost, tile of the highest row
   (mapgen:iterate-col-major
    *grid*
    (lambda (row col val)
@@ -254,15 +258,24 @@
      (if (and
           (eql val :floor)
           (= (random 200 state) 0))
-         (vector-push-extend
-          (make-baddie
-           :row row
-           :col col
-           :type :grid-bug
-           :hp 10
-           :attack 5
-           :def 13)
-          *baddies*)))
+         (let* ((type (cond
+                        ((= 0 (random 10 state)) :data-pusher)
+                        (t :grid-bug)))
+                (attack (cond
+                          ((eql type :data-pusher) 7)
+                          (t 5)))
+                (def (cond
+                       ((eql type :data-pusher) 11)
+                       (t 12))))
+           (vector-push-extend
+            (make-baddie
+             :row row
+             :col col
+             :type type
+             :hp 10
+             :attack attack
+             :def def)
+            *baddies*))))
    (lambda (col))))
 
 (defun spawn-recognizer (state)
@@ -294,13 +307,11 @@
                (if (and
                     (tile-is-enterable new-row col-baddie)
                     (> (random 5) 0))  ; chance to fail move
-                   (progn
-                     (setf (baddie-row baddie) new-row)))
+                   (setf (baddie-row baddie) new-row))
                (if (and
                     (tile-is-enterable (baddie-row baddie) new-col)
                     (> (random 5) 0))  ; chance to fail move
-                   (progn
-                     (setf (baddie-col baddie) new-col))))
+                   (setf (baddie-col baddie) new-col)))
              ;; Otherwise, there is a chance to move in a random direction
              (if (= (random 2 state) 0)
                  (let* ((row-delta (- 1 (random 3 state)))
@@ -363,6 +374,11 @@
                       *grid*
                       (mapgen:make-coord :row row :col col))))
           (cond
+            ((eql tile :objective)
+             (progn
+               (setf (player-row *player*) row)
+               (setf (player-col *player*) col)
+               (setf (game-state-finished *game-state*) t)))
             ((tile-is-enterable row col)
              (progn
                (setf (player-row *player*) row)
@@ -371,12 +387,7 @@
              (fight-with-baddie
               (get-baddie-at-position row col)
               t
-              state))
-            ((eql tile :objective)
-             (progn
-               (setf (player-row *player*) row)
-               (setf (player-col *player*) col)
-               (setf (game-state-finished *game-state*) t))))))))
+              state)))))))
             
 (defun main ()
   (format t "~%Fragmenting the memory canyons...~%")
@@ -388,17 +399,19 @@
         (let ((last-key nil)
               (should-quit nil))
           (update-display)
-          (loop while (not (or
-                            (eql #\Esc last-key)
-                            should-quit)) do
+          (loop while (not (eql #\Esc last-key)) do
                ;; Main game input loop
-               (setf should-quit (game-state-dead *game-state*))
                (setf last-key (get-keyboard-char))
-               (if (do-player-action last-key state)
-                   (progn
-                     (move-baddies state)  ; If the player moves, there is a chance to be recognized
-                     (if (= (random 100 state) 0)
-                         (spawn-recognizer state))))
+               (if (not
+                    (or
+                     (game-state-finished *game-state*)
+                     (game-state-dead *game-state*)))
+                   (if (do-player-action last-key state)
+                       (progn
+                         (move-baddies state)  ; If the player moves, there is a chance to be recognized
+                         (if (= (random 100 state) 0)
+                             (spawn-recognizer state)))))
                (update-display))))))
 
 (main)
+
