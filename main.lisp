@@ -331,7 +331,6 @@
   (let ((pd (player-def *player*))
         (ba (baddie-attack baddie)))
     (if player-init  ; player gets the first strike if they initiated it
-        (setf (player-attacked-baddie *player*) baddie)
         (let ((pa (player-attack *player*))
               (bd (baddie-def baddie)))
           (if (> (+ (roll-dice 1 20 state) pa) bd)

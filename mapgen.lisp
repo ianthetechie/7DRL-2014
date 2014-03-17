@@ -110,7 +110,7 @@
     (loop while (< (floor-tile-percentage grid) 1/3) do
          ;; Pick a coordinate component (row or col) and a delta (-1 or 1)
          (let ((new-coord (ortho-step grid coord state)))
-           (loop while (not (is-near-n-walls grid new-coord 14 2)) do
+           (loop while (not (is-near-n-walls grid new-coord 15 2)) do
                 (setf new-coord (ortho-step grid new-coord state)))
            (setf coord new-coord)
            (dig grid coord state)))
